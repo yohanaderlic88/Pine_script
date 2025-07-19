@@ -1,0 +1,320 @@
+//@version=5
+strategy("God Mode Forex Strategy Ultimate Pro Auto Fixed", overlay=true, margin_long=100, margin_short=100)
+
+// --- Input Parameters: User Customization ---
+bool use_ema = input.bool(true, "Use EMA", group="Indicator Toggles")
+bool use_rsi = input.bool(true, "Use RSI", group="Indicator Toggles")
+bool use_macd = input.bool(true, "Use MACD", group="Indicator Toggles")
+bool use_atr = input.bool(true, "Use ATR", group="Indicator Toggles")
+bool use_supertrend = input.bool(true, "Use Supertrend", group="Indicator Toggles")
+
+bool use_dashboard = input.bool(true, "Show Indicator Dashboard", group="Feature Toggles")
+bool use_candles = input.bool(true, "Use Candlestick Patterns", group="Feature Toggles")
+bool use_divergence = input.bool(true, "Use RSI Divergence", group="Feature Toggles")
+bool use_time_filter = input.bool(true, "Use Time-of-Day Filter", group="Feature Toggles")
+bool use_htf_bias = input.bool(true, "Use Higher Timeframe Bias", group="Feature Toggles")
+bool fancy_labels = input.bool(true, "Enable Emoji Labels", group="Feature Toggles")
+bool use_equity_curve = input.bool(true, "Show Equity Curve", group="Feature Toggles")
+bool use_drawdown_filter = input.bool(true, "Use Drawdown Filter", group="Feature Toggles")
+bool use_trade_limit = input.bool(true, "Use Trade Frequency Limit", group="Feature Toggles")
+bool use_swing_logic = input.bool(true, "Use Swing High/Low for Divergence/SL", group="Feature Toggles")
+bool use_slippage = input.bool(true, "Use Slippage Modeling", group="Feature Toggles")
+bool use_performance_stats = input.bool(true, "Show Performance Stats", group="Feature Toggles")
+bool override_auto = input.bool(false, "🛠️ Manually Override Pair-Based Settings", group="Feature Toggles")
+
+int ema_fast_len = input.int(9, "EMA Fast Length", minval=1, group="Indicator Settings")
+int ema_slow_len = input.int(21, "EMA Slow Length", minval=1, group="Indicator Settings")
+int rsi_len = input.int(14, "RSI Length", minval=1, group="Indicator Settings")
+float rsi_overbought = input.float(70, "RSI Overbought", minval=50, maxval=100, group="Indicator Settings")
+float rsi_oversold = input.float(30, "RSI Oversold", minval=0, maxval=50, group="Indicator Settings")
+int macd_fast = input.int(12, "MACD Fast", minval=1, group="Indicator Settings")
+int macd_slow = input.int(26, "MACD Slow", minval=1, group="Indicator Settings")
+int macd_signal = input.int(9, "MACD Signal", minval=1, group="Indicator Settings")
+int atr_len = input.int(14, "ATR Length", minval=1, group="Indicator Settings")
+float atr_mult = input.float(2.0, "Manual ATR Multiplier", minval=0.1, step=0.1, group="Indicator Settings")
+int supertrend_len = input.int(10, "Supertrend Length", minval=1, group="Indicator Settings")
+float supertrend_mult = input.float(3.0, "Supertrend Multiplier", minval=0.1, step=0.1, group="Indicator Settings")
+int min_confirmations = input.int(3, "Manual Minimum Confirmations (2–5)", minval=2, maxval=5, group="Indicator Settings")
+
+float risk_pct = input.float(1.0, "Risk per Trade (%)", minval=0.1, maxval=10.0, group="Risk Management")
+float rr_ratio = input.float(2.0, "Manual Default Risk/Reward Ratio", minval=0.5, step=0.1, group="Risk Management")
+float rsi_rr = input.float(2.0, "Manual RR for RSI", minval=0.5, step=0.1, group="Risk Management")
+float ema_rr = input.float(2.5, "Manual RR for EMA", minval=0.5, step=0.1, group="Risk Management")
+float macd_rr = input.float(1.8, "Manual RR for MACD", minval=0.5, step=0.1, group="Risk Management")
+bool use_atr_sl = input.bool(true, "Use ATR-based Stop Loss", group="Risk Management")
+float sl_atr_mult = input.float(1.5, "ATR SL Multiplier", minval=0.1, step=0.1, group="Risk Management")
+float max_drawdown = input.float(10.0, "Max Allowable Drawdown (%)", minval=1.0, step=0.1, group="Risk Management")
+float slippage = input.float(0.0, "Slippage (%)", minval=0.0, step=0.01, group="Risk Management")
+
+time session_start = input.time(timestamp("01 Jan 2025 05:00"), "Session Start", group="Time Filter")
+time session_end = input.time(timestamp("01 Jan 2025 20:00"), "Session End", group="Time Filter")
+
+string htf = input.timeframe("D", "Higher Timeframe EMA Bias", group="Higher Timeframe Bias")
+
+int start_year = input.int(2020, "Start Year", minval=2000, group="Backtest Range")
+int start_month = input.int(1, "Start Month", minval=1, maxval=12, group="Backtest Range")
+int start_day = input.int(1, "Start Day", minval=1, maxval=31, group="Backtest Range")
+
+// --- Detect Current Trading Pair ---
+string pair = syminfo.tickerid
+
+// --- Auto-Adjust Settings Per Pair ---
+var float auto_atr_mult = atr_mult
+var float auto_rr_ratio = rr_ratio
+var int auto_confirm = min_confirmations
+var float auto_rsi_rr = rsi_rr
+var float auto_ema_rr = ema_rr
+var float auto_macd_rr = macd_rr
+
+if pair == "OANDA:EURUSD"
+    auto_atr_mult := 1.5
+    auto_rr_ratio := 2.0
+    auto_confirm := 3
+    auto_rsi_rr := 2.0
+    auto_ema_rr := 2.5
+    auto_macd_rr := 1.8
+else if pair == "OANDA:GBPUSD"
+    auto_atr_mult := 2.0
+    auto_rr_ratio := 2.5
+    auto_confirm := 4
+    auto_rsi_rr := 2.2
+    auto_ema_rr := 2.8
+    auto_macd_rr := 2.0
+else if pair == "OANDA:USDJPY"
+    auto_atr_mult := 1.3
+    auto_rr_ratio := 1.8
+    auto_confirm := 3
+    auto_rsi_rr := 1.7
+    auto_ema_rr := 2.0
+    auto_macd_rr := 1.5
+else if pair == "OANDA:AUDUSD"
+    auto_atr_mult := 1.7
+    auto_rr_ratio := 2.2
+    auto_confirm := 3
+    auto_rsi_rr := 2.0
+    auto_ema_rr := 2.4
+    auto_macd_rr := 1.9
+else
+    auto_atr_mult := atr_mult
+    auto_rr_ratio := rr_ratio
+    auto_confirm := min_confirmations
+    auto_rsi_rr := rsi_rr
+    auto_ema_rr := ema_rr
+    auto_macd_rr := macd_rr
+
+// --- Final Parameters ---
+float final_atr_mult = override_auto ? atr_mult : auto_atr_mult
+float final_rr_ratio = override_auto ? rr_ratio : auto_rr_ratio
+int final_confirmations = override_auto ? min_confirmations : auto_confirm
+float final_rsi_rr = override_auto ? rsi_rr : auto_rsi_rr
+float final_ema_rr = override_auto ? ema_rr : auto_ema_rr
+float final_macd_rr = override_auto ? macd_rr : auto_macd_rr
+
+// --- Indicator Calculations ---
+ta_ema_fast = use_ema ? ta.ema(close, ema_fast_len) : na
+ta_ema_slow = use_ema ? ta.ema(close, ema_slow_len) : na
+ta_rsi = use_rsi ? ta.rsi(close, rsi_len) : na
+[macd_line, signal_line, _] = use_macd ? ta.macd(close, macd_fast, macd_slow, macd_signal) : [na, na, na]
+ta_atr = use_atr ? ta.atr(atr_len) : na
+[supertrend, direction] = use_supertrend ? ta.supertrend(supertrend_len, supertrend_mult) : [na, na]
+
+// --- ATR Volatility Filter ---
+bool high_volatility = use_atr and ta_atr ? ta_atr > ta.sma(ta_atr, 20) : true
+
+// --- Time-of-Day Filter ---
+bool in_session = use_time_filter ? time >= session_start and time <= session_end : true
+
+// --- Higher Timeframe Trend Bias ---
+var float ema_fast_htf = na
+var float ema_slow_htf = na
+if use_htf_bias
+    [ema_fast_htf, ema_slow_htf] := request.security(syminfo.tickerid, htf, [ta.ema(close, ema_fast_len), ta.ema(close, ema_slow_len)])
+int trend_bias = use_htf_bias ? (ema_fast_htf > ema_slow_htf ? 1 : ema_fast_htf < ema_slow_htf ? -1 : 0) : 0
+
+// --- Drawdown Control Filter ---
+var float peak_equity = na
+if na(peak_equity) or strategy.equity > peak_equity
+    peak_equity := strategy.equity
+float drawdown = (peak_equity - strategy.equity) / peak_equity * 100
+bool allow_entry = use_drawdown_filter ? drawdown < max_drawdown : true
+
+// --- Trade Frequency Limit ---
+var float trade_count = 0
+bool new_day = dayofmonth != dayofmonth[1]
+if new_day
+    trade_count := 0
+
+// --- Swing High/Low Logic ---
+var float pivot_high = na
+var float pivot_low = na
+if use_swing_logic
+    pivot_high := ta.pivothigh(high, 5, 5)
+    pivot_low := ta.pivotlow(low, 5, 5)
+if not na(pivot_high)
+    plotshape(not na(pivot_high), "Swing High", style=shape.triangleup, location=location.abovebar, color=color.red, size=size.tiny)
+if not na(pivot_low)
+    plotshape(not na(pivot_low), "Swing Low", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.tiny)
+
+// --- Signal Logic: Multi-Indicator Confirmation ---
+var float signal_count = 0
+var string signal_used = na
+var string buy_triggers = na
+var string sell_triggers = na
+bool ema_signal_long = use_ema and ta.crossover(close, ta_ema_fast) and ta_ema_fast > ta_ema_slow
+bool ema_signal_short = use_ema and ta.crossunder(close, ta_ema_fast) and ta_ema_fast < ta_ema_slow
+bool rsi_signal_long = use_rsi and ta_rsi < rsi_oversold
+bool rsi_signal_short = use_rsi and ta_rsi > rsi_overbought
+bool macd_signal_long = use_macd and ta.crossover(macd_line, signal_line)
+bool macd_signal_short = use_macd and ta.crossunder(macd_line, signal_line)
+bool atr_signal_long = use_atr and ta_atr and close > close[1] + ta_atr * final_atr_mult
+bool atr_signal_short = use_atr and ta_atr and close < close[1] - ta_atr * final_atr_mult
+bool supertrend_signal_long = use_supertrend and direction == -1
+bool supertrend_signal_short = use_supertrend and direction == 1
+
+// Count agreeing signals
+signal_count := 0
+if use_ema and ema_signal_long
+    signal_count := signal_count + 1
+    buy_triggers := "EMA"
+    signal_used := signal_used == na ? "EMA" : signal_used
+if use_rsi and rsi_signal_long
+    signal_count := signal_count + 1
+    buy_triggers := buy_triggers == na ? "RSI" : buy_triggers + "+RSI"
+    signal_used := signal_used == na ? "RSI" : signal_used
+if use_macd and macd_signal_long
+    signal_count := signal_count + 1
+    buy_triggers := buy_triggers == na ? "MACD" : buy_triggers + "+MACD"
+    signal_used := signal_used == na ? "MACD" : signal_used
+if use_atr and atr_signal_long
+    signal_count := signal_count + 1
+    buy_triggers := buy_triggers == na ? "ATR" : buy_triggers + "+ATR"
+if use_supertrend and supertrend_signal_long
+    signal_count := signal_count + 1
+    buy_triggers := buy_triggers == na ? "Supertrend" : buy_triggers + "+Supertrend"
+bool buy_signal = signal_count >= final_confirmations and trend_bias >= 0 and high_volatility and in_session and allow_entry and (not use_trade_limit or trade_count < 3)
+
+signal_count := 0
+sell_triggers := na
+signal_used := na
+if use_ema and ema_signal_short
+    signal_count := signal_count + 1
+    sell_triggers := "EMA"
+    signal_used := signal_used == na ? "EMA" : signal_used
+if use_rsi and rsi_signal_short
+    signal_count := signal_count + 1
+    sell_triggers := sell_triggers == na ? "RSI" : sell_triggers + "+RSI"
+    signal_used := signal_used == na ? "RSI" : signal_used
+if use_macd and macd_signal_short
+    signal_count := signal_count + 1
+    sell_triggers := sell_triggers == na ? "MACD" : sell_triggers + "+MACD"
+    signal_used := signal_used == na ? "MACD" : signal_used
+if use_atr and atr_signal_short
+    signal_count := signal_count + 1
+    sell_triggers := sell_triggers == na ? "ATR" : sell_triggers + "+ATR"
+if use_supertrend and supertrend_signal_short
+    signal_count := signal_count + 1
+    sell_triggers := sell_triggers == na ? "Supertrend" : sell_triggers + "+Supertrend"
+bool sell_signal = signal_count >= final_confirmations and trend_bias <= 0 and high_volatility and in_session and allow_entry and (not use_trade_limit or trade_count < 3)
+
+// Update trade count after signal generation
+if (buy_signal or sell_signal) and use_trade_limit
+    trade_count := trade_count + 1
+
+// --- RSI Divergence Detection (Enhanced with Swing High/Low) ---
+bool rsi_bull_div = use_divergence and use_rsi and use_swing_logic and not na(pivot_low) and ta_rsi[1] < ta_rsi[2] and close[1] > close[2]
+bool rsi_bear_div = use_divergence and use_rsi and use_swing_logic and not na(pivot_high) and ta_rsi[1] > ta_rsi[2] and close[1] < close[2]
+if rsi_bull_div
+    plotshape(rsi_bull_div, "Bullish Divergence", style=shape.triangleup, location=location.belowbar, color=color.blue, size=size.tiny)
+if rsi_bear_div
+    plotshape(rsi_bear_div, "Bearish Divergence", style=shape.triangledown, location=location.abovebar, color=color.purple, size=size.tiny)
+
+// --- Candlestick Pattern Detection ---
+bool pin_bar_bull = use_candles and close > open and (close - open) > 0 and (high - close) / (close - open) > 2
+bool pin_bar_bear = use_candles and close < open and (open - close) > 0 and (close - low) / (open - close) > 2
+bool engulfing_bull = use_candles and close > open and close[1] < open[1] and close > open[1] and open < close[1]
+bool engulfing_bear = use_candles and close < open and close[1] > open[1] and close < open[1] and open > close[1]
+if pin_bar_bull
+    plotshape(pin_bar_bull, "Bullish Pin Bar", style=shape.cross, location=location.belowbar, color=color.green, size=size.tiny)
+if pin_bar_bear
+    plotshape(pin_bar_bear, "Bearish Pin Bar", style=shape.cross, location=location.abovebar, color=color.red, size=size.tiny)
+if engulfing_bull
+    plotshape(engulfing_bull, "Bullish Engulfing", style=shape.cross, location=location.belowbar, color=color.lime, size=size.tiny)
+if engulfing_bear
+    plotshape(engulfing_bear, "Bearish Engulfing", style=shape.cross, location=location.abovebar, color=color.maroon, size=size.tiny)
+
+// Enhance signals with optional features
+buy_signal := buy_signal or (use_divergence and rsi_bull_div) or (use_candles and (pin_bar_bull or engulfing_bull))
+sell_signal := sell_signal or (use_divergence and rsi_bear_div) or (use_candles and (pin_bar_bear or engulfing_bear))
+
+// --- Risk Management ---
+float sl_distance = use_atr_sl and ta_atr ? ta_atr * sl_atr_mult : close * risk_pct / 100
+float tp_distance = signal_used == "RSI" ? sl_distance * final_rsi_rr :
+                    signal_used == "EMA" ? sl_distance * final_ema_rr :
+                    signal_used == "MACD" ? sl_distance * final_macd_rr :
+                    sl_distance * final_rr_ratio
+float price_offset = use_slippage ? close * slippage / 100 : 0
+float position_size = sl_distance > 0 ? (strategy.equity * risk_pct / 100) / sl_distance : 0
+
+// --- Trade Execution ---
+if buy_signal and position_size > 0
+    strategy.entry("Long", strategy.long, qty=position_size, comment="Triggered by: " + str.tostring(buy_triggers))
+    strategy.exit("Exit Long", "Long", stop=close - sl_distance, limit=close + tp_distance + price_offset)
+if sell_signal and position_size > 0
+    strategy.entry("Short", strategy.short, qty=position_size, comment="Triggered by: " + str.tostring(sell_triggers))
+    strategy.exit("Exit Short", "Short", stop=close + sl_distance, limit=close - tp_distance - price_offset)
+
+// --- Visuals: Plot Buy/Sell Arrows or Labels ---
+if buy_signal and fancy_labels
+    label.new(bar_index, low, "🟢 BUY", color=color.green, style=label.style_label_up, textcolor=color.white)
+else if buy_signal
+    plotshape(buy_signal, "Buy Signal", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small)
+if sell_signal and fancy_labels
+    label.new(bar_index, high, "🔴 SELL", color=color.red, style=label.style_label_down, textcolor=color.white)
+else if sell_signal
+    plotshape(sell_signal, "Sell Signal", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small)
+
+// --- Alerts ---
+alertcondition(buy_signal, title="God Mode Buy", message="🟢 GODMODE BUY SIGNAL – Enter Now (Forex): " + str.tostring(buy_triggers))
+alertcondition(sell_signal, title="God Mode Sell", message="🔴 SELL IMMEDIATELY – Trend Reversal Detected: " + str.tostring(sell_triggers))
+
+// --- Indicator Dashboard ---
+var table dashboard = na
+if use_dashboard and barstate.islast
+    if na(dashboard)
+        dashboard := table.new(position.top_right, 2, 7, border_width=1)
+    table.cell(dashboard, 0, 0, "Indicator", bgcolor=color.gray, text_color=color.white)
+    table.cell(dashboard, 0, 1, "HTF Bias", bgcolor=color.gray, text_color=color.white)
+    table.cell(dashboard, 0, 2, "EMA", bgcolor=color.gray, text_color=color.white)
+    table.cell(dashboard, 0, 3, "RSI", bgcolor=color.gray, text_color=color.white)
+    table.cell(dashboard, 0, 4, "MACD", bgcolor=color.gray, text_color=color.white)
+    table.cell(dashboard, 0, 5, "ATR", bgcolor=color.gray, text_color=color.white)
+    table.cell(dashboard, 0, 6, "Supertrend", bgcolor=color.gray, text_color=color.white)
+    string bias_str = trend_bias == 1 ? "↑" : trend_bias == -1 ? "↓" : "-"
+    table.cell(dashboard, 1, 1, bias_str, bgcolor=color.black, text_color=color.white)
+    table.cell(dashboard, 1, 2, ema_signal_long ? "🟢" : ema_signal_short ? "🔴" : "⚪", bgcolor=color.black, text_color=color.white)
+    table.cell(dashboard, 1, 3, rsi_signal_long ? "🟢" : rsi_signal_short ? "🔴" : "⚪", bgcolor=color.black, text_color=color.white)
+    table.cell(dashboard, 1, 4, macd_signal_long ? "🟢" : macd_signal_short ? "🔴" : "⚪", bgcolor=color.black, text_color=color.white)
+    table.cell(dashboard, 1, 5, atr_signal_long ? "🟢" : atr_signal_short ? "🔴" : "⚪", bgcolor=color.black, text_color=color.white)
+    table.cell(dashboard, 1, 6, supertrend_signal_long ? "🟢" : supertrend_signal_short ? "🔴" : "⚪", bgcolor=color.black, text_color=color.white)
+
+// --- Equity Curve ---
+if use_equity_curve
+    plot(strategy.equity, title="Equity Curve", color=color.fuchsia, linewidth=2)
+
+// --- Performance Stats ---
+if use_performance_stats and bar_index % 50 == 0
+    string stats_text = "Trades: " + str.tostring(strategy.closedtrades) + "\nWins: " + str.tostring(strategy.wintrades) + "\nLosses: " + str.tostring(strategy.losstrades)
+    label.new(bar_index, high, stats_text, style=label.style_label_down, color=color.blue, textcolor=color.white)
+
+// --- Backtest Range Filter ---
+bool in_date_range = true
+if year >= start_year and month >= start_month and dayofmonth >= start_day
+    in_date_range := true
+else
+    in_date_range := false
+strategy.close_all(when=not in_date_range)
+
+// --- Plot Indicators (Optional) ---
+plot(use_ema ? ta_ema_fast : na, "EMA Fast", color=color.blue)
+plot(use_ema ? ta_ema_slow : na, "EMA Slow", color=color.orange)
+plot(use_supertrend ? supertrend : na, "Supertrend", color=color.purple)
