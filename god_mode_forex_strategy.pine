@@ -46,8 +46,8 @@ float sl_atr_mult = input.float(1.5, "ATR SL Multiplier", minval=0.1, step=0.1, 
 float max_drawdown = input.float(10.0, "Max Allowable Drawdown (%)", minval=1.0, step=0.1, group="Risk Management")
 float slippage = input.float(0.0, "Slippage (%)", minval=0.0, step=0.01, group="Risk Management")
 
-time session_start = input.time(timestamp("01 Jan 2025 05:00"), "Session Start", group="Time Filter")
-time session_end = input.time(timestamp("01 Jan 2025 20:00"), "Session End", group="Time Filter")
+int session_start = input.time(timestamp("01 Jan 2025 05:00"), "Session Start", group="Time Filter")
+int session_end = input.time(timestamp("01 Jan 2025 20:00"), "Session End", group="Time Filter")
 
 string htf = input.timeframe("D", "Higher Timeframe EMA Bias", group="Higher Timeframe Bias")
 
